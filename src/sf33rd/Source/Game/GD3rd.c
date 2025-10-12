@@ -31,8 +31,6 @@ u8 ldreq_break;
 REQ q_ldreq[16];
 u8 ldreq_result[294];
 
-static AFSHandle afs_handle = AFS_NONE;
-
 // forward decls
 s32 Push_LDREQ_Queue(REQ* ldreq);
 void Push_LDREQ_Queue_Metamor();
@@ -51,19 +49,19 @@ s32 fsOpen(REQ* req) {
         return 0;
     }
 
-    if (afs_handle != AFS_NONE) {
-        AFS_Close(afs_handle);
+    if (req->hnd != AFS_NONE) {
+        AFS_Close(req->hnd);
     }
 
-    afs_handle = AFS_Open(req->fnum);
+    req->hnd = AFS_Open(req->fnum);
 
     req->info.number = 1;
     return 1;
 }
 
-void fsClose(REQ* /* unused */) {
-    AFS_Close(afs_handle);
-    afs_handle = AFS_NONE;
+void fsClose(REQ* req) {
+    AFS_Close(req->hnd);
+    req->hnd = AFS_NONE;
 }
 
 u32 fsGetFileSize(u16 fnum) {
@@ -78,37 +76,39 @@ u32 fsCalSectorSize(u32 size) {
     return (size + 2048 - 1) / 2048;
 }
 
-s32 fsCansel(REQ* /* unused */) {
-    if ((afs_handle != AFS_NONE) && (AFS_GetState(afs_handle) == AFS_READ_STATE_READING)) {
-        AFS_Stop(afs_handle);
+s32 fsCansel(REQ* req) {
+    if ((req->hnd != AFS_NONE) && (AFS_GetState(req->hnd) == AFS_READ_STATE_READING)) {
+        AFS_Stop(req->hnd);
+        req->hnd = AFS_NONE;
     }
 
     return 1;
 }
 
 s32 fsCheckCommandExecuting() {
-    if (afs_handle == AFS_NONE) {
-        return 0;
-    }
-
-    switch (AFS_GetState(afs_handle)) {
-    case AFS_READ_STATE_READING:
-    case AFS_READ_STATE_ERROR:
-        return 1;
-
-    case AFS_READ_STATE_IDLE:
-    case AFS_READ_STATE_FINISHED:
-        return 0;
-    }
+//    if (afs_handle == AFS_NONE) {
+//        return 0;
+//    }
+//
+//    switch (AFS_GetState(afs_handle)) {
+//    case AFS_READ_STATE_READING:
+//    case AFS_READ_STATE_ERROR:
+//        return 1;
+//
+//    case AFS_READ_STATE_IDLE:
+//    case AFS_READ_STATE_FINISHED:
+//        return 0;
+//    }
+  return 0;
 }
 
-s32 fsRequestFileRead(REQ* /* unused */, u32 sec, void* buff) {
-    AFS_Read(afs_handle, sec, buff);
+s32 fsRequestFileRead(REQ* req, u32 sec, void* buff) {
+    AFS_Read(req->hnd, sec, buff);
     return 1;
 }
 
-s32 fsCheckFileReaded(REQ* /* unused */) {
-    switch (AFS_GetState(afs_handle)) {
+s32 fsCheckFileReaded(REQ* req) {
+    switch (AFS_GetState(req->hnd)) {
     case AFS_READ_STATE_ERROR:
         return 2;
 
@@ -218,6 +218,7 @@ void Init_Load_Request_Queue_1st() {
     for (i = 0; i < (s16)(sizeof(q_ldreq) / sizeof(REQ)); i++) {
         q_ldreq[i].be = 0;
         q_ldreq[i].type = 0;
+        q_ldreq[i].hnd = AFS_NONE;
     }
 
     ldreq_break = 0;
@@ -253,6 +254,7 @@ void Push_LDREQ_Queue_Player(s16 id, s16 ix) {
         ldreq.key = 0;
         ldreq.group = 0;
         ldreq.result = &ldreq_result[i];
+        ldreq.hnd = AFS_NONE;
 
         if (ldreq.type == 2) {
             ldreq.kokey = lpc_seldat[id];
@@ -287,6 +289,7 @@ void Push_LDREQ_Queue_Union(s16 ix) {
         ldreq.key = 0;
         ldreq.group = 0;
         ldreq.result = &ldreq_result[i];
+        ldreq.hnd = AFS_NONE;
         Push_LDREQ_Queue(&ldreq);
     }
 }
@@ -317,6 +320,7 @@ void Push_LDREQ_Queue_Direct(s16 ix, s16 id) {
     ldreq.key = 0;
     ldreq.group = 0;
     ldreq.result = &ldreq_result[ix];
+    ldreq.hnd = AFS_NONE;
     Push_LDREQ_Queue(&ldreq);
 }
 

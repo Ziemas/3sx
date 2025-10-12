@@ -9,12 +9,12 @@ extern const u8 lpr_wrdata[3];
 extern const u8 lpt_seldat[4];
 
 s32 fsOpen(REQ* req);
-void fsClose(REQ* /* unused */);
+void fsClose(REQ* req);
 u32 fsGetFileSize(u16 fnum);
 u32 fsCalSectorSize(u32 size);
 s32 fsCheckCommandExecuting();
-s32 fsRequestFileRead(REQ* /* unused */, u32 sec, void* buff);
-s32 fsCheckFileReaded(REQ* /* unused */);
+s32 fsRequestFileRead(REQ* req, u32 sec, void* buff);
+s32 fsCheckFileReaded(REQ* req);
 s32 fsFileReadSync(REQ* req, u32 sec, void* buff);
 void waitVsyncDummy();
 s16 load_it_use_any_key(u16 fnum, u8 kokey, u8 group);

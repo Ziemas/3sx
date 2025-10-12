@@ -107,6 +107,7 @@ static void* load_file(int file_id, int* size) {
 
     REQ req;
     req.fnum = file_id;
+    req.hnd = AFS_NONE;
     fsOpen(&req);
     req.size = file_size;
     *size = req.size;

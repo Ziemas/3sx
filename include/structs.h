@@ -3,6 +3,7 @@
 
 #include "sf33rd/AcrSDK/common/plcommon.h"
 #include "types.h"
+#include "port/io/afs.h"
 #include <libdma.h>
 #include <libgraph.h>
 
@@ -1620,6 +1621,7 @@ typedef struct {
         u32 number; // offset 0x0, size 0x4
         u32 size;   // offset 0x4, size 0x4
     } info;         // offset 0x20, size 0x8
+    AFSHandle hnd;
 } REQ;
 
 struct _cursor_infor {
