@@ -15,6 +15,7 @@
 
 typedef struct RenderTask {
     SDL_Texture* texture;
+    SDL_Palette* palette;
     SDL_Vertex vertices[4];
     float z;
     int index;
@@ -25,108 +26,93 @@ SDL_Texture* cps3_canvas = NULL;
 static const int cps3_width = 384;
 static const int cps3_height = 224;
 
+static SDL_Texture* bound_tex = NULL;
+static SDL_Palette* bound_pal = NULL;
 static SDL_Renderer* _renderer = NULL;
-static SDL_Surface* surfaces[FL_TEXTURE_MAX] = { NULL };
 static SDL_Palette* palettes[FL_PALETTE_MAX] = { NULL };
 static SDL_Texture* textures[FL_PALETTE_MAX] = { NULL };
-static int texture_count = 0;
-static SDL_Texture* texture_cache[FL_TEXTURE_MAX][FL_PALETTE_MAX + 1] = { { NULL } };
 static SDL_Texture* textures_to_destroy[1024] = { NULL };
+static SDL_Texture* palettes_to_destroy[1024] = { NULL };
 static int textures_to_destroy_count = 0;
+static int palettes_to_destroy_count = 0;
 static RenderTask render_tasks[RENDER_TASK_MAX] = { 0 };
 static int render_task_count = 0;
 
 // Debugging
 
 static bool draw_rect_borders = false;
-static bool dump_textures = false;
+// static bool dump_textures = false;
 
-static int texture_index = 0;
-
-static void save_texture(const SDL_Surface* surface, const SDL_Palette* palette) {
-    char filename[128];
-    sprintf(filename, "textures/%d.tga", texture_index);
-
-    const Uint8* pixels = surface->pixels;
-    const int width = surface->w;
-    const int height = surface->h;
-
-    FILE* f = fopen(filename, "wb");
-
-    if (!f) {
-        return;
-    }
-
-    uint8_t header[18] = { 0 };
-    header[2] = 2; // uncompressed RGB
-    header[12] = width & 0xFF;
-    header[13] = (width >> 8) & 0xFF;
-    header[14] = height & 0xFF;
-    header[15] = (height >> 8) & 0xFF;
-    header[16] = 32;   // bits per pixel
-    header[17] = 0x20; // top-left origin
-
-    fwrite(header, 1, 18, f);
-
-    // Write pixels in BGRA format
-    for (int i = 0; i < width * height; ++i) {
-        Uint8 index = pixels[i];
-
-        switch (palette->ncolors) {
-        case 16:
-            if (i & 1) {
-                index >>= 4;
-            } else {
-                index &= 0xF;
-            }
-
-            break;
-
-        case 256:
-            break;
-        }
-
-        const SDL_Color* color = &palette->colors[index];
-        const Uint8 bgr[] = { color->b, color->g, color->r, color->a };
-        fwrite(bgr, 1, 4, f);
-    }
-
-    fclose(f);
-    texture_index += 1;
-}
-
-// Textures
-
-static void push_texture(SDL_Texture* texture) {
-    textures[texture_count] = texture;
-    texture_count += 1;
-}
-
-static SDL_Texture* get_texture() {
-    if (texture_count == 0) {
-        fatal_error("No textures to get");
-    }
-
-    return textures[texture_count - 1];
-}
-
-static void push_texture_to_destroy(SDL_Texture* texture) {
-    textures_to_destroy[textures_to_destroy_count] = texture;
-    textures_to_destroy_count += 1;
-}
+// static void save_texture(const SDL_Surface* surface, const SDL_Palette* palette) {
+//     char filename[128];
+//     sprintf(filename, "textures/%d.tga", texture_index);
+//
+//     const Uint8* pixels = surface->pixels;
+//     const int width = surface->w;
+//     const int height = surface->h;
+//
+//     FILE* f = fopen(filename, "wb");
+//
+//     if (!f) {
+//         return;
+//     }
+//
+//     uint8_t header[18] = { 0 };
+//     header[2] = 2; // uncompressed RGB
+//     header[12] = width & 0xFF;
+//     header[13] = (width >> 8) & 0xFF;
+//     header[14] = height & 0xFF;
+//     header[15] = (height >> 8) & 0xFF;
+//     header[16] = 32;   // bits per pixel
+//     header[17] = 0x20; // top-left origin
+//
+//     fwrite(header, 1, 18, f);
+//
+//     // Write pixels in BGRA format
+//     for (int i = 0; i < width * height; ++i) {
+//         Uint8 index = pixels[i];
+//
+//         switch (palette->ncolors) {
+//         case 16:
+//             if (i & 1) {
+//                 index >>= 4;
+//             } else {
+//                 index &= 0xF;
+//             }
+//
+//             break;
+//
+//         case 256:
+//             break;
+//         }
+//
+//         const SDL_Color* color = &palette->colors[index];
+//         const Uint8 bgr[] = { color->b, color->g, color->r, color->a };
+//         fwrite(bgr, 1, 4, f);
+//     }
+//
+//     fclose(f);
+//     texture_index += 1;
+// }
 
 static void destroy_textures() {
-    for (int i = 0; i < texture_count; i++) {
-        textures[i] = NULL;
-    }
-
-    texture_count = 0;
-
     for (int i = 0; i < textures_to_destroy_count; i++) {
-        SDL_DestroyTexture(textures_to_destroy[i]);
+        if (textures_to_destroy[i]) {
+            SDL_DestroyTexture(textures_to_destroy[i]);
+            textures_to_destroy[i] = NULL;
+        }
     }
 
     textures_to_destroy_count = 0;
+
+    for (int i = 0; i < palettes_to_destroy_count; i++) {
+        if (palettes_to_destroy[i]) {
+            SDL_DestroyPalette(palettes_to_destroy[i]);
+            palettes_to_destroy[i] = NULL;
+        }
+    }
+
+    palettes_to_destroy_count = 0;
 }
 
 static void push_render_task(RenderTask* task) {
@@ -242,6 +228,9 @@ void SDLGameRenderer_RenderFrame() {
     for (int i = 0; i < render_task_count; i++) {
         const RenderTask* task = &render_tasks[i];
         const int indices[] = { 0, 1, 2, 1, 2, 3 };
+        if (task->palette) {
+            SDL_SetTexturePalette(task->texture, task->palette);
+        }
         SDL_RenderGeometry(_renderer, task->texture, task->vertices, 4, indices, 6);
     }
 
@@ -297,7 +286,7 @@ void SDLGameRenderer_CreateTexture(unsigned int th) {
     SDL_PixelFormat pixel_format = SDL_PIXELFORMAT_UNKNOWN;
     int pitch = 0;
 
-    if (surfaces[texture_index] != NULL) {
+    if (textures[texture_index] != NULL) {
         fatal_error("Overwriting an existing texture");
     }
 
@@ -322,27 +311,25 @@ void SDLGameRenderer_CreateTexture(unsigned int th) {
         break;
     }
 
-    const SDL_Surface* surface =
-        SDL_CreateSurfaceFrom(fl_texture->width, fl_texture->height, pixel_format, pixels, pitch);
-    surfaces[texture_index] = surface;
+    SDL_Surface* surface = SDL_CreateSurfaceFrom(fl_texture->width, fl_texture->height, pixel_format, pixels, pitch);
+    SDL_Texture* tex = SDL_CreateTextureFromSurface(_renderer, surface);
+    if (!tex) {
+        printf("failed to create tex: %s\n", SDL_GetError());
+    }
+    textures[texture_index] = tex;
+
+    SDL_DestroySurface(surface);
+
+    SDL_SetTextureScaleMode(textures[texture_index], SDL_SCALEMODE_PIXELART);
+    SDL_SetTextureBlendMode(textures[texture_index], SDL_BLENDMODE_BLEND);
 }
 
 void SDLGameRenderer_DestroyTexture(unsigned int texture_handle) {
     const int texture_index = texture_handle - 1;
 
-    for (int i = 0; i < FL_PALETTE_MAX + 1; i++) {
-        SDL_Texture** texture_p = &texture_cache[texture_index][i];
-
-        if (*texture_p == NULL) {
-            continue;
-        }
-
-        push_texture_to_destroy(*texture_p);
-        *texture_p = NULL;
-    }
-
-    SDL_DestroySurface(surfaces[texture_index]);
-    surfaces[texture_index] = NULL;
+    textures_to_destroy[textures_to_destroy_count] = textures[texture_index];
+    textures_to_destroy_count++;
+    textures[texture_index] = NULL;
 }
 
 void SDLGameRenderer_CreatePalette(unsigned int ph) {
@@ -400,54 +387,26 @@ void SDLGameRenderer_CreatePalette(unsigned int ph) {
 void SDLGameRenderer_DestroyPalette(unsigned int palette_handle) {
     const int palette_index = palette_handle - 1;
 
-    for (int i = 0; i < FL_TEXTURE_MAX; i++) {
-        SDL_Texture** texture_p = &texture_cache[i][palette_handle];
-
-        if (*texture_p == NULL) {
-            continue;
-        }
-
-        push_texture_to_destroy(*texture_p);
-        *texture_p = NULL;
-    }
-
-    SDL_DestroyPalette(palettes[palette_index]);
+    palettes_to_destroy[palettes_to_destroy_count] = palettes[palette_index];
+    palettes_to_destroy_count++;
     palettes[palette_index] = NULL;
 }
 
-void SDLGameRenderer_SetTexture(unsigned int th) {
+void SDLGameRenderer_BindTexture(unsigned int th) {
     const int texture_handle = LO_16_BITS(th);
-    const SDL_Surface* surface = surfaces[texture_handle - 1];
     const int palette_handle = HI_16_BITS(th);
+    const SDL_Palette* texture = texture_handle != 0 ? textures[texture_handle - 1] : NULL;
     const SDL_Palette* palette = palette_handle != 0 ? palettes[palette_handle - 1] : NULL;
 
-    if (dump_textures) {
-        save_texture(surface, palette);
-    }
-
-    if (palette != NULL) {
-        SDL_SetSurfacePalette(surface, palette);
-    }
-
-    SDL_Texture* texture = NULL;
-    const SDL_Texture* cached_texture = texture_cache[texture_handle - 1][palette_handle];
-
-    if (cached_texture != NULL) {
-        texture = cached_texture;
-    } else {
-        texture = SDL_CreateTextureFromSurface(_renderer, surface);
-        SDL_SetTextureScaleMode(texture, SDL_SCALEMODE_NEAREST);
-        SDL_SetTextureBlendMode(texture, SDL_BLENDMODE_BLEND);
-        texture_cache[texture_handle - 1][palette_handle] = texture;
-    }
-
-    push_texture(texture);
+    bound_tex = texture;
+    bound_pal = palette;
 }
 
 static void draw_quad(const SDLGameRenderer_Vertex* vertices, bool textured) {
     RenderTask task;
     task.index = render_task_count;
-    task.texture = textured ? get_texture() : NULL;
+    task.texture = textured ? bound_tex : NULL;
+    task.palette = textured ? bound_pal : NULL;
     task.z = flPS2ConvScreenFZ(vertices[0].coord.z);
 
     SDL_zeroa(task.vertices);
