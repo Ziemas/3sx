@@ -92,11 +92,11 @@ static void draw_hit_judge_box(f32 px, f32 py, f32 sx, f32 sy, u32 fill_col, u32
     thickness_sx = (sx < 1.0f) ? sx : 1.0f;
     thickness_sy = (sy < 1.0f) ? sy : 1.0f;
 
-    draw_hit_judge_line(px, py, sx, sy, fill_col, attr);
     draw_hit_judge_line(px, py, sx, thickness_sy, outline_col, attr);
     draw_hit_judge_line(px, py + sy - thickness_sy, sx, thickness_sy, outline_col, attr);
     draw_hit_judge_line(px, py, thickness_sx, sy, outline_col, attr);
     draw_hit_judge_line(px + sx - thickness_sx, py, thickness_sx, sy, outline_col, attr);
+    draw_hit_judge_line(px, py, sx, sy, fill_col, attr);
 }
 
 void Init_load_on_memory_data() {
